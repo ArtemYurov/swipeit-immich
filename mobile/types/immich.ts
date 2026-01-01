@@ -14,6 +14,7 @@ export interface ImmichAsset {
     exifInfo?: {
         exifImageWidth: number;
         exifImageHeight: number;
+        fileSizeInByte: number;
     };
 }
 

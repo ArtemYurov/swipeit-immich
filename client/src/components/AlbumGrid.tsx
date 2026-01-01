@@ -49,40 +49,6 @@ export function AlbumGrid() {
                 <p className="text-zinc-400 text-lg mb-6">
                     Select {viewMode === 'albums' ? 'an album' : viewMode === 'people' ? 'a person' : 'a month'} to start swiping.
                 </p>
-
-                {/* View Mode Toggle */}
-                <div className="inline-flex bg-zinc-900/50 p-1 rounded-xl border border-white/5">
-                    <button
-                        onClick={() => setViewMode('albums')}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${viewMode === 'albums'
-                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                            : 'text-zinc-400 hover:text-white hover:bg-white/5'
-                            }`}
-                    >
-                        <FolderOpen className="w-4 h-4" />
-                        Albums
-                    </button>
-                    <button
-                        onClick={() => setViewMode('timeline')}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${viewMode === 'timeline'
-                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                            : 'text-zinc-400 hover:text-white hover:bg-white/5'
-                            }`}
-                    >
-                        <Calendar className="w-4 h-4" />
-                        Timeline
-                    </button>
-                    <button
-                        onClick={() => setViewMode('people')}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${viewMode === 'people'
-                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                            : 'text-zinc-400 hover:text-white hover:bg-white/5'
-                            }`}
-                    >
-                        <Users className="w-4 h-4" />
-                        People
-                    </button>
-                </div>
             </header>
 
             {/* Conditional Grid Rendering */}

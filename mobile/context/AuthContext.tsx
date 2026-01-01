@@ -11,6 +11,7 @@ interface AuthContextType {
     login: (serverUrl: string, email: string, pass: string) => Promise<void>;
     loginWithToken: (serverUrl: string, token: string) => Promise<void>;
     logout: () => void;
+    user: { name: string; email: string } | null;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -21,6 +22,7 @@ const AuthContext = createContext<AuthContextType>({
     login: async () => { },
     loginWithToken: async () => { },
     logout: () => { },
+    user: null,
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -30,6 +32,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const [isLoading, setIsLoading] = useState(true);
     const [serverUrl, setServerUrl] = useState('');
     const [accessToken, setAccessToken] = useState('');
+    const [user, setUser] = useState<{ name: string; email: string } | null>(null);
 
     useEffect(() => {
         const initAuth = async () => {
@@ -51,6 +54,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         initAuth();
     }, []);
+
+    const fetchUser = async () => {
+        try {
+            const { data } = await api.get('/users/me');
+            setUser({ name: data.name, email: data.email });
+        } catch (e) {
+            console.error('Failed to fetch user', e);
+        }
+    };
+
+    useEffect(() => {
+        if (isAuthenticated) {
+            fetchUser();
+        }
+    }, [isAuthenticated]);
 
     const login = useCallback(async (serverUrl: string, email: string, pass: string) => {
         // Normalize URL
@@ -109,7 +127,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }, []);
 
     return (
-        <AuthContext.Provider value={{ isAuthenticated, isLoading, serverUrl, accessToken, login, loginWithToken, logout }}>
+        <AuthContext.Provider value={{ isAuthenticated, isLoading, serverUrl, accessToken, login, loginWithToken, logout, user }}>
             {children}
         </AuthContext.Provider>
     );

@@ -7,16 +7,19 @@ import { AlbumGrid } from '@/components/AlbumGrid';
 import { SwipeCard } from '@/components/SwipeCard';
 import { SwipeButtons } from '@/components/SwipeButtons';
 import { ReviewBinModal } from '@/components/ReviewBinModal';
+import { Sidebar } from '@/components/Sidebar';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import { formatBytes } from '@/lib/utils';
 
 function SwipeInterface() {
-    const { queue, handleSwipe, handleUndo, history, isLoading, albumId, setAlbumId, remainingCount, selectedMonth, setSelectedMonth, selectedPerson, setSelectedPerson, trashQueue, clearTrash } = useSwipe();
+    const { queue, handleSwipe, handleUndo, history, isLoading, albumId, setAlbumId, remainingCount, selectedMonth, setSelectedMonth, selectedPerson, setSelectedPerson, trashQueue, clearTrash, sessionCleanedBytes } = useSwipe();
     const { logout, serverUrl, accessToken } = useAuth();
     const [isReviewOpen, setIsReviewOpen] = useState(false);
+    const [isSidebarOpen, setSidebarOpen] = useState(false);
 
     // Prefetch upcoming images
     useEffect(() => {
@@ -58,13 +61,9 @@ function SwipeInterface() {
             <View style={styles.container}>
                 <StatusBar style="light" />
                 {/* Header */}
-                <View style={styles.headerRight}>
-                    <TouchableOpacity style={styles.logoutButton} onPress={logout}>
-                        <Ionicons name="log-out-outline" size={20} color="#71717a" />
-                        <Text style={styles.logoutText}>Logout</Text>
-                    </TouchableOpacity>
-                </View>
-                <AlbumGrid />
+                {/* Header / Menu moved to AlbumGrid */}
+                <AlbumGrid onMenuPress={() => setSidebarOpen(true)} />
+                <Sidebar isOpen={isSidebarOpen} onClose={() => setSidebarOpen(false)} />
             </View>
         );
     }
@@ -98,6 +97,13 @@ function SwipeInterface() {
                 </View>
                 <Text style={styles.doneTitle}>All caught up!</Text>
                 <Text style={styles.doneSubtitle}>No more photos to review.</Text>
+
+                {sessionCleanedBytes > 0 && (
+                    <View style={{ marginTop: 20, marginBottom: 20, alignItems: 'center' }}>
+                        <Text style={{ color: '#34d399', fontSize: 14 }}>You cleaned {formatBytes(sessionCleanedBytes)}</Text>
+                    </View>
+                )}
+
                 <TouchableOpacity style={styles.backButton} onPress={() => { setAlbumId(null); setSelectedMonth(null); setSelectedPerson(null); }}>
                     <Ionicons name="arrow-back" size={20} color="#fff" />
                     <Text style={styles.backButtonText}>Back to Library</Text>
@@ -180,6 +186,7 @@ function SwipeInterface() {
             </View>
 
             <ReviewBinModal isOpen={isReviewOpen} onClose={() => setIsReviewOpen(false)} />
+            <Sidebar isOpen={isSidebarOpen} onClose={() => setSidebarOpen(false)} />
         </View>
     );
 }

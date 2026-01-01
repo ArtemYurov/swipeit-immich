@@ -52,6 +52,9 @@ interface SwipeContextType {
     restoreFromTrash: (assetId: string) => void;
     emptyTrash: () => Promise<void>;
     clearTrash: () => void;
+    // New: Stats
+    stats: { total: number; thisWeek: number };
+    sessionCleanedBytes: number;
 }
 
 const SwipeContext = createContext<SwipeContextType>({
@@ -82,7 +85,18 @@ const SwipeContext = createContext<SwipeContextType>({
     restoreFromTrash: () => { },
     emptyTrash: async () => { },
     clearTrash: () => { },
+    stats: { total: 0, thisWeek: 0 },
+    sessionCleanedBytes: 0,
 });
+
+const getWeekKey = (date: Date) => {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const year = d.getUTCFullYear();
+    const week = Math.ceil((((d.getTime() - new Date(Date.UTC(year, 0, 1)).getTime()) / 86400000) + 1) / 7);
+    return `${year}-W${week}`;
+};
 
 export const useSwipe = () => useContext(SwipeContext);
 
@@ -104,6 +118,23 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
     const [people, setPeople] = useState<Person[]>([]);
     const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
     const [trashQueue, setTrashQueue] = useState<ImmichAsset[]>([]);
+    const [stats, setStats] = useState({ total: 0, thisWeek: 0 });
+    const [sessionCleanedBytes, setSessionCleanedBytes] = useState(0);
+
+    // Load stats
+    useEffect(() => {
+        try {
+            const raw = localStorage.getItem('immich_swipe_stats');
+            if (raw) {
+                const data = JSON.parse(raw);
+                const currentWeek = getWeekKey(new Date());
+                const weekBytes = data.weeks?.[currentWeek] || 0;
+                setStats({ total: data.total || 0, thisWeek: weekBytes });
+            }
+        } catch (e) {
+            console.error('Failed to load stats', e);
+        }
+    }, []);
 
     const fetchAlbums = useCallback(async () => {
         try {
@@ -243,6 +274,7 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
         setHistory([]);
         setMasterAssets([]);
         setTrashQueue([]);
+        setSessionCleanedBytes(0);
         loadingRef.current = false;
     }, [albumId, selectedMonth, selectedPerson]);
 
@@ -454,6 +486,29 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
                 console.error(`Failed to delete asset ${asset.id}`, e);
             }
         }
+
+        // Update Stats
+        const bytesFreed = assetsToDelete.reduce((acc, curr) => acc + (curr.exifInfo?.fileSizeInByte || 0), 0);
+        if (bytesFreed > 0) {
+            const currentWeek = getWeekKey(new Date());
+            const newTotal = stats.total + bytesFreed;
+            const newWeek = stats.thisWeek + bytesFreed;
+
+            setStats({ total: newTotal, thisWeek: newWeek });
+            setSessionCleanedBytes(prev => prev + bytesFreed);
+
+            // Persist
+            try {
+                const raw = localStorage.getItem('immich_swipe_stats');
+                const data = raw ? JSON.parse(raw) : { total: 0, weeks: {} };
+                data.total = newTotal;
+                if (!data.weeks) data.weeks = {};
+                data.weeks[currentWeek] = (data.weeks[currentWeek] || 0) + bytesFreed;
+                localStorage.setItem('immich_swipe_stats', JSON.stringify(data));
+            } catch (e) {
+                console.error('Failed to save stats', e);
+            }
+        }
     };
 
     const clearTrash = () => {
@@ -491,6 +546,8 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
             restoreFromTrash,
             emptyTrash,
             clearTrash,
+            stats,
+            sessionCleanedBytes,
         }}>
             {children}
         </SwipeContext.Provider>

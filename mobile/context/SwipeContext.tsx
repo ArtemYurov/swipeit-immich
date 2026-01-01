@@ -2,6 +2,8 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import api from '@/lib/api';
 import { ImmichAsset, SwipeAction, ImmichAlbum, Person } from '@/types/immich';
 import { useAuth } from './AuthContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getWeekKey } from '@/lib/utils';
 
 export type ViewMode = 'albums' | 'timeline' | 'people';
 
@@ -41,6 +43,9 @@ interface SwipeContextType {
     restoreFromTrash: (assetId: string) => void;
     emptyTrash: () => Promise<void>;
     clearTrash: () => void;
+    // Stats
+    stats: { total: number; thisWeek: number };
+    sessionCleanedBytes: number;
 }
 
 const SwipeContext = createContext<SwipeContextType>({
@@ -70,6 +75,8 @@ const SwipeContext = createContext<SwipeContextType>({
     restoreFromTrash: () => { },
     emptyTrash: async () => { },
     clearTrash: () => { },
+    stats: { total: 0, thisWeek: 0 },
+    sessionCleanedBytes: 0,
 });
 
 export const useSwipe = () => useContext(SwipeContext);
@@ -94,7 +101,28 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
     const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
 
     // Review Bin
+    // Review Bin
     const [trashQueue, setTrashQueue] = useState<ImmichAsset[]>([]);
+    const [stats, setStats] = useState({ total: 0, thisWeek: 0 });
+    const [sessionCleanedBytes, setSessionCleanedBytes] = useState(0);
+
+    // Load Stats
+    useEffect(() => {
+        const loadStats = async () => {
+            try {
+                const raw = await AsyncStorage.getItem('immich_swipe_stats');
+                if (raw) {
+                    const data = JSON.parse(raw);
+                    const currentWeek = getWeekKey(new Date());
+                    const weekBytes = data.weeks?.[currentWeek] || 0;
+                    setStats({ total: data.total || 0, thisWeek: weekBytes });
+                }
+            } catch (e) {
+                console.error('Failed to load stats', e);
+            }
+        };
+        loadStats();
+    }, []);
 
     const fetchAlbums = useCallback(async () => {
         try {
@@ -219,7 +247,9 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
         setQueue([]);
         setHistory([]);
         setMasterAssets([]);
+        setMasterAssets([]);
         setTrashQueue([]);
+        setSessionCleanedBytes(0);
         loadingRef.current = false;
     }, [albumId, selectedMonth, selectedPerson]);
 
@@ -362,6 +392,29 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
                 console.error('Failed to delete asset', e);
             }
         }
+
+        // Update Stats
+        const bytesFreed = assetsToDelete.reduce((acc, curr) => acc + (curr.exifInfo?.fileSizeInByte || 0), 0);
+        if (bytesFreed > 0) {
+            const currentWeek = getWeekKey(new Date());
+            const newTotal = stats.total + bytesFreed;
+            const newWeek = stats.thisWeek + bytesFreed;
+
+            setStats({ total: newTotal, thisWeek: newWeek });
+            setSessionCleanedBytes(prev => prev + bytesFreed);
+
+            // Persist
+            try {
+                const raw = await AsyncStorage.getItem('immich_swipe_stats');
+                const data = raw ? JSON.parse(raw) : { total: 0, weeks: {} };
+                data.total = newTotal;
+                if (!data.weeks) data.weeks = {};
+                data.weeks[currentWeek] = (data.weeks[currentWeek] || 0) + bytesFreed;
+                await AsyncStorage.setItem('immich_swipe_stats', JSON.stringify(data));
+            } catch (e) {
+                console.error('Failed to save stats', e);
+            }
+        }
     };
 
     const clearTrash = () => {
@@ -396,6 +449,8 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
             restoreFromTrash,
             emptyTrash,
             clearTrash,
+            stats,
+            sessionCleanedBytes,
         }}>
             {children}
         </SwipeContext.Provider>

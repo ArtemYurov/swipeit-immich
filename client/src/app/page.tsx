@@ -6,6 +6,8 @@ import { useSwipe, SwipeProvider } from '@/context/SwipeContext'; // Note: Swipe
 import { AssetCard } from '@/components/AssetCard';
 import { AlbumGrid } from '@/components/AlbumGrid';
 import { ReviewBinModal } from '@/components/ReviewBinModal';
+import { Sidebar } from '@/components/Sidebar';
+import { formatBytes } from '@/lib/utils';
 import { ImmichAsset } from '@/types/immich';
 
 import { Button } from '@/components/ui/button';
@@ -14,7 +16,7 @@ import { useRouter } from 'next/navigation';
 import { LayoutGroup, motion, AnimatePresence } from 'framer-motion';
 
 function SwipeInterface() {
-  const { queue, handleSwipe, handleUndo, history, isLoading, albumId, setAlbumId, remainingCount, selectedMonth, setSelectedMonth, selectedPerson, setSelectedPerson, trashQueue, clearTrash } = useSwipe();
+  const { queue, handleSwipe, handleUndo, history, isLoading, albumId, setAlbumId, remainingCount, selectedMonth, setSelectedMonth, selectedPerson, setSelectedPerson, trashQueue, clearTrash, sessionCleanedBytes } = useSwipe();
   const { logout } = useAuth();
   const [isReviewOpen, setIsReviewOpen] = useState(false);
 
@@ -37,16 +39,21 @@ function SwipeInterface() {
   // If no album or month or person selected, show grid
   if (!albumId && !selectedMonth && !selectedPerson) {
     return (
-      <div className="relative flex h-screen w-full flex-col bg-black overflow-hidden">
-        {/* Header / Nav */}
-        <div className="absolute top-0 right-0 p-6 z-50">
-          <Button variant="ghost" className="text-zinc-400 hover:text-white" onClick={logout}>
-            <LogOut className="mr-2 h-4 w-4" />
-            Logout
-          </Button>
-        </div>
+      <div className="relative flex h-screen w-full bg-black overflow-hidden">
+        {/* Sidebar for Desktop, hidden on mobile for now (could add drawer) */}
+        <Sidebar />
 
-        <AlbumGrid />
+        {/* Main Content */}
+        <div className="flex-1 flex flex-col overflow-hidden relative">
+          <div className="absolute top-0 right-0 p-6 z-50 md:hidden"> {/* Only show Logout on mobile/small screens here if sidebar hidden */}
+            <Button variant="ghost" className="text-zinc-400 hover:text-white" onClick={logout}>
+              <LogOut className="mr-2 h-4 w-4" />
+              Logout
+            </Button>
+          </div>
+
+          <AlbumGrid />
+        </div>
       </div>
     );
   }
@@ -81,6 +88,15 @@ function SwipeInterface() {
         </div>
         <h2 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-green-400 to-emerald-600">All caught up!</h2>
         <p className="text-zinc-400">No more photos to review.</p>
+
+        {sessionCleanedBytes > 0 && (
+          <div className="bg-emerald-500/10 border border-emerald-500/20 px-6 py-3 rounded-xl flex flex-col items-center">
+            <span className="text-emerald-400 text-sm font-medium">You cleaned</span>
+            <span className="text-2xl font-bold text-white my-1">{formatBytes(sessionCleanedBytes)}</span>
+            <span className="text-emerald-400/70 text-xs">this session</span>
+          </div>
+        )}
+
         <div className="flex gap-4">
           <Button variant="outline" onClick={() => { setAlbumId(null); setSelectedMonth(null); setSelectedPerson(null); }}>Back to Library</Button>
           <Button variant="ghost" onClick={() => window.location.reload()}>Refresh</Button>

@@ -7,11 +7,12 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { MonthGrid } from './MonthGrid';
 import { PeopleGrid } from './PeopleGrid';
+import { StorageStats } from './StorageStats';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 48) / 2;
 
-export function AlbumGrid() {
+export function AlbumGrid({ onMenuPress }: { onMenuPress: () => void }) {
     const { albums, setAlbumId, isLoading, fetchAlbums, viewMode, setViewMode } = useSwipe();
     const { serverUrl, accessToken } = useAuth();
 
@@ -60,7 +61,13 @@ export function AlbumGrid() {
     return (
         <View style={styles.container}>
             <View style={styles.header}>
-                <Text style={styles.title}>Your Library</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                    <TouchableOpacity onPress={onMenuPress} style={{ padding: 4 }}>
+                        <Ionicons name="menu" size={24} color="#f4f4f5" />
+                    </TouchableOpacity>
+                    <Text style={[styles.title, { marginBottom: 0 }]}>Your Library</Text>
+                </View>
+
                 <Text style={styles.subtitle}>
                     Select {viewMode === 'albums' ? 'an album' : viewMode === 'timeline' ? 'a month' : 'a person'} to start swiping
                 </Text>
@@ -90,6 +97,8 @@ export function AlbumGrid() {
                     </TouchableOpacity>
                 </View>
             </View>
+
+
 
             {/* Content Area */}
             {viewMode === 'timeline' ? (

@@ -16,6 +16,7 @@ export interface ImmichAsset {
     exifInfo?: {
         exifImageWidth: number;
         exifImageHeight: number;
+        fileSizeInByte: number;
     };
     // Thumbnail url needs to be constructed
 }

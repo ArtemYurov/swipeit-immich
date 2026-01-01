@@ -9,6 +9,7 @@ interface AuthContextType {
     isLoading: boolean;
     login: (serverUrl: string, email: string, pass: string) => Promise<void>;
     logout: () => void;
+    user: { name: string; email: string } | null;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -16,6 +17,7 @@ const AuthContext = createContext<AuthContextType>({
     isLoading: true,
     login: async () => { },
     logout: () => { },
+    user: null,
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -23,6 +25,7 @@ export const useAuth = () => useContext(AuthContext);
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
+    const [user, setUser] = useState<{ name: string; email: string } | null>(null);
     const router = useRouter();
     const pathname = usePathname();
 
@@ -91,7 +94,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
             if (token && url) {
                 setIsAuthenticated(true);
-                // Optional: Validate token here with a simple profile fetch
+                // Fetch User Profile
+                fetchUser();
             } else {
                 setIsAuthenticated(false);
             }
@@ -100,6 +104,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         initAuth();
     }, []);
+
+    const fetchUser = async () => {
+        try {
+            const { data } = await api.get('/users/me');
+            setUser({ name: data.name, email: data.email });
+        } catch (e) {
+            console.error('Failed to fetch user', e);
+        }
+    };
 
     const login = async (serverUrl: string, email: string, pass: string) => {
         // 1. Store URL temporarily or set it in API interceptor context (which allows dynamic config)
@@ -125,6 +138,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 localStorage.setItem('immich_access_token', data.accessToken);
                 document.cookie = `immich_access_token=${data.accessToken}; path=/; max-age=31536000; SameSite=Lax`;
                 setIsAuthenticated(true);
+                fetchUser();
                 router.push('/');
             }
         } catch (error) {
@@ -148,7 +162,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     };
 
     return (
-        <AuthContext.Provider value={{ isAuthenticated, isLoading, login, logout }}>
+        <AuthContext.Provider value={{ isAuthenticated, isLoading, login, logout, user }}>
             {children}
         </AuthContext.Provider>
     );
