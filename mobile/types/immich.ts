@@ -29,3 +29,9 @@ export interface ImmichAlbum {
     assetCount: number;
     albumThumbnailAssetId: string | null;
 }
+
+export interface Person {
+    id: string;
+    name: string;
+    thumbnailPath: string; // url to thumbnail
+}

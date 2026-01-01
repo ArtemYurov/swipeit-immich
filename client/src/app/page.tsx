@@ -1,38 +1,41 @@
 "use client";
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useSwipe, SwipeProvider } from '@/context/SwipeContext'; // Note: SwipeProvider wrapper needed
 import { AssetCard } from '@/components/AssetCard';
 import { AlbumGrid } from '@/components/AlbumGrid';
+import { ReviewBinModal } from '@/components/ReviewBinModal';
 import { ImmichAsset } from '@/types/immich';
 
 import { Button } from '@/components/ui/button';
-import { Undo2, Check, X, LogOut, Loader2 } from 'lucide-react';
+import { Undo2, Check, X, LogOut, Loader2, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { LayoutGroup, motion, AnimatePresence } from 'framer-motion';
 
 function SwipeInterface() {
-  const { queue, handleSwipe, handleUndo, history, isLoading, albumId, setAlbumId, remainingCount, selectedMonth, setSelectedMonth } = useSwipe();
+  const { queue, handleSwipe, handleUndo, history, isLoading, albumId, setAlbumId, remainingCount, selectedMonth, setSelectedMonth, selectedPerson, setSelectedPerson, trashQueue, clearTrash } = useSwipe();
   const { logout } = useAuth();
+  const [isReviewOpen, setIsReviewOpen] = useState(false);
 
   // Keyboard Support
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!albumId && !selectedMonth) return; // Disable swipe keys if in library view
+      if (!albumId && !selectedMonth && !selectedPerson) return; // Disable swipe keys if in library view
       if (e.key === 'ArrowLeft') handleSwipe('left');
       if (e.key === 'ArrowRight') handleSwipe('right');
       if (e.key === 'Escape') {
         setAlbumId(null);
         setSelectedMonth(null);
+        setSelectedPerson(null);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleSwipe, albumId, selectedMonth, setAlbumId, setSelectedMonth]);
+  }, [handleSwipe, albumId, selectedMonth, selectedPerson, setAlbumId, setSelectedMonth, setSelectedPerson]);
 
-  // If no album or month selected, show grid
-  if (!albumId && !selectedMonth) {
+  // If no album or month or person selected, show grid
+  if (!albumId && !selectedMonth && !selectedPerson) {
     return (
       <div className="relative flex h-screen w-full flex-col bg-black overflow-hidden">
         {/* Header / Nav */}
@@ -59,6 +62,18 @@ function SwipeInterface() {
   }
 
   if (queue.length === 0 && !isLoading) {
+    // If trash has items, show review bin automatically (or wait for user to confirm)
+    // User requested: "after swiping... show relevant soft deletion page... delete everything... then show all caught up"
+    // So we effectively FORCE review mode here.
+    if (trashQueue.length > 0) {
+      // Force review mode. Call clearTrash() if closed (Cancel/Discard).
+      return (
+        <div className="relative flex h-screen w-full bg-black overflow-hidden">
+          <ReviewBinModal isOpen={true} onClose={() => clearTrash()} />
+        </div>
+      );
+    }
+
     return (
       <div className="flex h-screen w-full flex-col items-center justify-center bg-black text-white space-y-6">
         <div className="bg-zinc-900/50 p-8 rounded-full">
@@ -67,7 +82,7 @@ function SwipeInterface() {
         <h2 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-green-400 to-emerald-600">All caught up!</h2>
         <p className="text-zinc-400">No more photos to review.</p>
         <div className="flex gap-4">
-          <Button variant="outline" onClick={() => { setAlbumId(null); setSelectedMonth(null); }}>Back to Library</Button>
+          <Button variant="outline" onClick={() => { setAlbumId(null); setSelectedMonth(null); setSelectedPerson(null); }}>Back to Library</Button>
           <Button variant="ghost" onClick={() => window.location.reload()}>Refresh</Button>
         </div>
       </div>
@@ -109,15 +124,14 @@ function SwipeInterface() {
         )}
       </div>
 
-      {/* HEADER: Navigation & Stats */}
       <div className="relative w-full z-50 flex items-center justify-between px-6 py-4 md:px-8 md:py-6">
-        <Button variant="ghost" className="rounded-full bg-black/20 backdrop-blur-md text-white/80 hover:bg-white/10 hover:text-white transition-all" onClick={() => { setAlbumId(null); setSelectedMonth(null); }}>
+        <Button variant="ghost" className="rounded-full bg-black/20 backdrop-blur-md text-white/80 hover:bg-white/10 hover:text-white transition-all" onClick={() => { setAlbumId(null); setSelectedMonth(null); setSelectedPerson(null); }}>
           <Undo2 className="mr-2 h-4 w-4" />
           Library
         </Button>
 
-        {/* Stats (Moved to Header) */}
-        <div className="flex items-center gap-4 bg-black/20 backdrop-blur-md px-6 py-2 rounded-full border border-white/5 mx-auto absolute left-1/2 transform -translate-x-1/2">
+        {/* Stats (Moved to Header) - Shifted right slightly by flex layout, keep distinct */}
+        <div className="hidden md:flex items-center gap-4 bg-black/20 backdrop-blur-md px-6 py-2 rounded-full border border-white/5 absolute left-1/2 transform -translate-x-1/2">
           <div className="flex items-center gap-2">
             <div className="w-1.5 h-1.5 rounded-full bg-red-400 shadow-[0_0_8px_rgba(248,113,113,0.6)]" />
             <span className="text-white/90 font-mono text-sm">{deletedCount}</span>
@@ -129,9 +143,23 @@ function SwipeInterface() {
           </div>
         </div>
 
-        <Button variant="ghost" size="icon" onClick={handleUndo} disabled={history.length === 0} className="text-white/80 hover:bg-white/10 hover:text-white rounded-full transition-all">
-          <Undo2 className="h-6 w-6" />
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            className="rounded-full bg-black/20 backdrop-blur-md text-white/80 hover:bg-white/10 hover:text-white transition-all relative"
+            onClick={() => setIsReviewOpen(true)}
+          >
+            <Trash2 className="h-5 w-5" />
+            {trashQueue.length > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full animate-in zoom-in">
+                {trashQueue.length}
+              </span>
+            )}
+          </Button>
+          <Button variant="ghost" size="icon" onClick={handleUndo} disabled={history.length === 0} className="text-white/80 hover:bg-white/10 hover:text-white rounded-full transition-all">
+            <Undo2 className="h-6 w-6" />
+          </Button>
+        </div>
       </div>
 
 
@@ -211,6 +239,7 @@ function SwipeInterface() {
         </div>
 
       </div>
+      <ReviewBinModal isOpen={isReviewOpen} onClose={() => setIsReviewOpen(false)} />
     </div>
   );
 }

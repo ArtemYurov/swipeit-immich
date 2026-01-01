@@ -2,10 +2,11 @@
 
 import { useSwipe, ImmichAlbum, ViewMode } from "@/context/SwipeContext";
 import { MonthGrid } from "./MonthGrid";
+import { PeopleGrid } from "./PeopleGrid";
 import { motion } from "framer-motion";
 import { useEffect, useMemo } from "react";
 // Lucide icons
-import { Image as ImageIcon, Camera, ArrowRight, Clock, FolderOpen, Calendar } from 'lucide-react';
+import { Image as ImageIcon, Camera, ArrowRight, Clock, FolderOpen, Calendar, Users } from 'lucide-react';
 
 export function AlbumGrid() {
     const { albums, setAlbumId, isLoading, viewMode, setViewMode } = useSwipe();
@@ -46,7 +47,7 @@ export function AlbumGrid() {
                     Your Library
                 </h1>
                 <p className="text-zinc-400 text-lg mb-6">
-                    Select {viewMode === 'albums' ? 'an album' : 'a month'} to start swiping.
+                    Select {viewMode === 'albums' ? 'an album' : viewMode === 'people' ? 'a person' : 'a month'} to start swiping.
                 </p>
 
                 {/* View Mode Toggle */}
@@ -54,8 +55,8 @@ export function AlbumGrid() {
                     <button
                         onClick={() => setViewMode('albums')}
                         className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${viewMode === 'albums'
-                                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                                : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                            : 'text-zinc-400 hover:text-white hover:bg-white/5'
                             }`}
                     >
                         <FolderOpen className="w-4 h-4" />
@@ -64,12 +65,22 @@ export function AlbumGrid() {
                     <button
                         onClick={() => setViewMode('timeline')}
                         className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${viewMode === 'timeline'
-                                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                                : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                            : 'text-zinc-400 hover:text-white hover:bg-white/5'
                             }`}
                     >
                         <Calendar className="w-4 h-4" />
                         Timeline
+                    </button>
+                    <button
+                        onClick={() => setViewMode('people')}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${viewMode === 'people'
+                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                            : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                            }`}
+                    >
+                        <Users className="w-4 h-4" />
+                        People
                     </button>
                 </div>
             </header>
@@ -77,6 +88,8 @@ export function AlbumGrid() {
             {/* Conditional Grid Rendering */}
             {viewMode === 'timeline' ? (
                 <MonthGrid />
+            ) : viewMode === 'people' ? (
+                <PeopleGrid />
             ) : (
                 <motion.div
                     variants={container}

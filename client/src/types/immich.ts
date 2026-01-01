@@ -29,3 +29,10 @@ export interface SwipeAction {
 export interface SearchResponse {
     assets: { items: ImmichAsset[] } // Check actual API response structure
 }
+
+export interface Person {
+    id: string;
+    name: string;
+    thumbnailPath?: string;
+    isHidden: boolean;
+}

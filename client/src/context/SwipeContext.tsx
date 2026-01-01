@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import api from '@/lib/api';
-import { ImmichAsset, SwipeAction } from '@/types/immich';
+import { ImmichAsset, SwipeAction, Person } from '@/types/immich';
 import { useAuth } from './AuthContext';
 
 export interface ImmichAlbum {
@@ -12,7 +12,7 @@ export interface ImmichAlbum {
     albumThumbnailAssetId: string | null;
 }
 
-export type ViewMode = 'albums' | 'timeline';
+export type ViewMode = 'albums' | 'timeline' | 'people';
 
 export interface MonthGroup {
     key: string; // e.g., "2024-12"
@@ -42,6 +42,16 @@ interface SwipeContextType {
     selectedMonth: string | null;
     setSelectedMonth: (month: string | null) => void;
     fetchTimeline: () => Promise<void>;
+    // New: People
+    people: Person[];
+    selectedPerson: string | null;
+    setSelectedPerson: (id: string | null) => void;
+    fetchPeople: () => Promise<void>;
+    // New: Review Bin
+    trashQueue: ImmichAsset[];
+    restoreFromTrash: (assetId: string) => void;
+    emptyTrash: () => Promise<void>;
+    clearTrash: () => void;
 }
 
 const SwipeContext = createContext<SwipeContextType>({
@@ -64,6 +74,14 @@ const SwipeContext = createContext<SwipeContextType>({
     selectedMonth: null,
     setSelectedMonth: () => { },
     fetchTimeline: async () => { },
+    people: [],
+    selectedPerson: null,
+    setSelectedPerson: () => { },
+    fetchPeople: async () => { },
+    trashQueue: [],
+    restoreFromTrash: () => { },
+    emptyTrash: async () => { },
+    clearTrash: () => { },
 });
 
 export const useSwipe = () => useContext(SwipeContext);
@@ -83,6 +101,9 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
     const [viewMode, setViewMode] = useState<ViewMode>('albums');
     const [monthGroups, setMonthGroups] = useState<MonthGroup[]>([]);
     const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+    const [people, setPeople] = useState<Person[]>([]);
+    const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
+    const [trashQueue, setTrashQueue] = useState<ImmichAsset[]>([]);
 
     const fetchAlbums = useCallback(async () => {
         try {
@@ -181,6 +202,34 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
         }
     }, [monthGroups.length]);
 
+    // Fetch people
+    const fetchPeople = useCallback(async () => {
+        if (people.length > 0) return;
+        setIsLoading(true);
+        try {
+            const response = await api.get('/people?isHidden=false');
+            let data = response.data;
+
+            // Handle various response shapes
+            if (!Array.isArray(data)) {
+                if (data.people && Array.isArray(data.people)) {
+                    data = data.people;
+                } else if (data.items && Array.isArray(data.items)) {
+                    data = data.items;
+                } else {
+                    console.warn('People API returned unexpected format:', data);
+                    data = [];
+                }
+            }
+
+            setPeople(data);
+        } catch (e) {
+            console.error("Failed to fetch people", e);
+        } finally {
+            setIsLoading(false);
+        }
+    }, [people.length]);
+
     // Load albums on auth
     useEffect(() => {
         if (isAuthenticated) {
@@ -188,13 +237,14 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
         }
     }, [isAuthenticated, fetchAlbums]);
 
-    // Reset everything when album or month changes
+    // Reset everything when album, month, or person changes
     useEffect(() => {
         setQueue([]);
         setHistory([]);
         setMasterAssets([]);
-        loadingRef.current = false; // allow new fetch
-    }, [albumId, selectedMonth]);
+        setTrashQueue([]);
+        loadingRef.current = false;
+    }, [albumId, selectedMonth, selectedPerson]);
 
     // Derived State
     // Use the Album's metadata count if available for accuracy (search might be capped at 250?)
@@ -204,7 +254,16 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
     // Total count logic:
     // If we have album metadata, use that (it's the Source of Truth from Immich).
     // Otherwise fall back to what we downloaded.
-    const totalAssetsCount = currentAlbum ? currentAlbum.assetCount : masterAssets.length;
+    // Total count logic:
+    // 1. Album: metadata count is source of truth.
+    // 2. Month: monthGroup count is robust.
+    // 3. Person: masterAssets.length is the best we have until full fetch.
+    let totalAssetsCount = masterAssets.length;
+    if (currentAlbum) totalAssetsCount = currentAlbum.assetCount;
+    else if (selectedMonth) {
+        const group = monthGroups.find(g => g.key === selectedMonth);
+        if (group) totalAssetsCount = group.count;
+    }
 
     // Remaining = Total - Processed(History)
     // Ensure we don't go negative
@@ -213,8 +272,8 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
     // Initial Load of Album or Month Assets
     useEffect(() => {
         const loadAssets = async () => {
-            // Must have either albumId or selectedMonth
-            if ((!albumId && !selectedMonth) || loadingRef.current || masterAssets.length > 0) return;
+            // Must have either albumId or selectedMonth or selectedPerson
+            if ((!albumId && !selectedMonth && !selectedPerson) || loadingRef.current || masterAssets.length > 0) return;
 
             loadingRef.current = true;
             setIsLoading(true);
@@ -222,41 +281,74 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
             try {
                 let assets: ImmichAsset[] = [];
 
-                if (albumId) {
-                    // Fetch assets by album
-                    const { data } = await api.post('/search/metadata', {
-                        albumIds: [albumId],
-                        isTrashed: false,
-                        isArchived: false,
-                        type: 'IMAGE',
-                        withExif: true,
-                        isVisible: true,
-                    });
-                    assets = Array.isArray(data) ? data : (data.assets?.items || []);
-                    console.log(`Loaded ${assets.length} assets for album ${albumId}`);
-                } else if (selectedMonth) {
-                    // Fetch assets by month using date range
-                    const [year, month] = selectedMonth.split('-').map(Number);
-                    const startDate = new Date(year, month - 1, 1);
-                    const endDate = new Date(year, month, 0, 23, 59, 59); // Last day of month
+                // Pagination loop to fetch ALL assets
+                let allAssets: ImmichAsset[] = [];
+                let page = 1;
+                let hasMore = true;
 
-                    const { data } = await api.post('/search/metadata', {
-                        isTrashed: false,
-                        isArchived: false,
-                        type: 'IMAGE',
-                        withExif: true,
-                        isVisible: true,
-                        takenAfter: startDate.toISOString(),
-                        takenBefore: endDate.toISOString(),
-                    });
-                    assets = Array.isArray(data) ? data : (data.assets?.items || []);
-                    console.log(`Loaded ${assets.length} assets for month ${selectedMonth}`);
+                while (hasMore) {
+                    let newAssets: ImmichAsset[] = [];
+
+                    if (albumId) {
+                        const { data } = await api.post('/search/metadata', {
+                            albumIds: [albumId],
+                            isTrashed: false,
+                            isArchived: false,
+                            type: 'IMAGE',
+                            withExif: true,
+                            isVisible: true,
+                            page,
+                        });
+                        newAssets = Array.isArray(data) ? data : (data.assets?.items || []);
+                    } else if (selectedMonth) {
+                        const [year, month] = selectedMonth.split('-').map(Number);
+                        const startDate = new Date(year, month - 1, 1);
+                        const endDate = new Date(year, month, 0, 23, 59, 59);
+
+                        const { data } = await api.post('/search/metadata', {
+                            isTrashed: false,
+                            isArchived: false,
+                            type: 'IMAGE',
+                            withExif: true,
+                            isVisible: true,
+                            takenAfter: startDate.toISOString(),
+                            takenBefore: endDate.toISOString(),
+                            page,
+                        });
+                        newAssets = Array.isArray(data) ? data : (data.assets?.items || []);
+                    } else if (selectedPerson) {
+                        const { data } = await api.post('/search/metadata', {
+                            isTrashed: false,
+                            isArchived: false,
+                            type: 'IMAGE',
+                            withExif: true,
+                            isVisible: true,
+                            personIds: [selectedPerson],
+                            page,
+                        });
+                        newAssets = Array.isArray(data) ? data : (data.assets?.items || []);
+                    }
+
+                    if (newAssets.length > 0) {
+                        allAssets = [...allAssets, ...newAssets];
+                        // If we got less than 100 or 250 (api defaults), likely end
+                        // A safer check is if newAssets length < typical limit or just keep going
+                        // If Immich default limit is 250, getting 250 means maybe more.
+                        // We'll increment page.
+                        page++;
+                    } else {
+                        hasMore = false;
+                    }
+
+                    // Safety break
+                    if (page > 100) hasMore = false;
                 }
 
-                setMasterAssets(assets);
+                console.log(`Loaded ${allAssets.length} total assets`);
+                setMasterAssets(allAssets);
 
                 // Initialize Queue with first 20 items
-                setQueue(assets.slice(0, 20));
+                setQueue(allAssets.slice(0, 20));
 
             } catch (error) {
                 console.error("Failed to fetch assets", error);
@@ -270,10 +362,10 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
             }
         };
 
-        if ((albumId || selectedMonth) && masterAssets.length === 0) {
+        if ((albumId || selectedMonth || selectedPerson) && masterAssets.length === 0) {
             loadAssets();
         }
-    }, [albumId, selectedMonth, masterAssets.length]);
+    }, [albumId, selectedMonth, selectedPerson, masterAssets.length]);
 
 
     // Queue Refill Management
@@ -320,11 +412,8 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
         setHistory((prev) => [action, ...prev]);
 
         if (direction === 'left') {
-            try {
-                await api.delete('/assets', { data: { ids: [asset.id] } });
-            } catch (e) {
-                console.error("Failed to delete asset", e);
-            }
+            // Soft Delete: Add to trash queue
+            setTrashQueue(prev => [asset, ...prev]);
         }
 
         // Refill logic handled by useEffect
@@ -337,15 +426,38 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
         setHistory((prev) => prev.slice(1));
 
         if (lastAction.action === 'DELETE') {
-            try {
-                await api.post('/trash/restore/assets', { ids: [lastAction.asset.id] });
-            } catch (e) {
-                console.error("Failed to restore", e);
-            }
+            // Undo Delete: Remove from trash queue
+            setTrashQueue(prev => prev.filter(a => a.id !== lastAction.asset.id));
         }
 
         // Put back in queue at the TOP
         setQueue(prev => [lastAction.asset, ...prev]);
+    };
+
+    const restoreFromTrash = (assetId: string) => {
+        setTrashQueue(prev => prev.filter(a => a.id !== assetId));
+        setHistory(prev => prev.filter(h => h.asset.id !== assetId));
+    };
+
+    const emptyTrash = async () => {
+        if (trashQueue.length === 0) return;
+
+        // Optimistic clear
+        const assetsToDelete = [...trashQueue];
+        setTrashQueue([]);
+
+        // Async API calls
+        for (const asset of assetsToDelete) {
+            try {
+                await api.delete('/assets', { data: { ids: [asset.id] } });
+            } catch (e) {
+                console.error(`Failed to delete asset ${asset.id}`, e);
+            }
+        }
+    };
+
+    const clearTrash = () => {
+        setTrashQueue([]);
     };
 
     return (
@@ -369,6 +481,16 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
             selectedMonth,
             setSelectedMonth,
             fetchTimeline,
+            // People
+            people,
+            selectedPerson,
+            setSelectedPerson,
+            fetchPeople,
+            // Review Bin
+            trashQueue,
+            restoreFromTrash,
+            emptyTrash,
+            clearTrash,
         }}>
             {children}
         </SwipeContext.Provider>

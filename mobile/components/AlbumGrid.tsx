@@ -6,6 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { MonthGrid } from './MonthGrid';
+import { PeopleGrid } from './PeopleGrid';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 48) / 2;
@@ -61,7 +62,7 @@ export function AlbumGrid() {
             <View style={styles.header}>
                 <Text style={styles.title}>Your Library</Text>
                 <Text style={styles.subtitle}>
-                    Select {viewMode === 'albums' ? 'an album' : 'a month'} to start swiping
+                    Select {viewMode === 'albums' ? 'an album' : viewMode === 'timeline' ? 'a month' : 'a person'} to start swiping
                 </Text>
 
                 {/* View Mode Toggle */}
@@ -80,12 +81,21 @@ export function AlbumGrid() {
                         <Ionicons name="calendar-outline" size={16} color={viewMode === 'timeline' ? '#f59e0b' : '#71717a'} />
                         <Text style={[styles.toggleText, viewMode === 'timeline' && styles.toggleTextActive]}>Timeline</Text>
                     </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.toggleButton, viewMode === 'people' && styles.toggleButtonActive]}
+                        onPress={() => setViewMode('people')}
+                    >
+                        <Ionicons name="people-outline" size={16} color={viewMode === 'people' ? '#f59e0b' : '#71717a'} />
+                        <Text style={[styles.toggleText, viewMode === 'people' && styles.toggleTextActive]}>People</Text>
+                    </TouchableOpacity>
                 </View>
             </View>
 
             {/* Content Area */}
             {viewMode === 'timeline' ? (
                 <MonthGrid />
+            ) : viewMode === 'people' ? (
+                <PeopleGrid />
             ) : (
                 isLoading && albums.length === 0 ? (
                     <View style={styles.loadingContainer}>

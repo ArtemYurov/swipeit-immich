@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Image } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { useAuth } from '@/context/AuthContext';
@@ -6,6 +6,7 @@ import { SwipeProvider, useSwipe } from '@/context/SwipeContext';
 import { AlbumGrid } from '@/components/AlbumGrid';
 import { SwipeCard } from '@/components/SwipeCard';
 import { SwipeButtons } from '@/components/SwipeButtons';
+import { ReviewBinModal } from '@/components/ReviewBinModal';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
@@ -13,8 +14,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
 function SwipeInterface() {
-    const { queue, handleSwipe, handleUndo, history, isLoading, albumId, setAlbumId, remainingCount, selectedMonth, setSelectedMonth } = useSwipe();
+    const { queue, handleSwipe, handleUndo, history, isLoading, albumId, setAlbumId, remainingCount, selectedMonth, setSelectedMonth, selectedPerson, setSelectedPerson, trashQueue, clearTrash } = useSwipe();
     const { logout, serverUrl, accessToken } = useAuth();
+    const [isReviewOpen, setIsReviewOpen] = useState(false);
 
     // Prefetch upcoming images
     useEffect(() => {
@@ -50,8 +52,8 @@ function SwipeInterface() {
     const keptCount = history.filter(h => h.action === 'KEEP').length;
     const deletedCount = history.filter(h => h.action === 'DELETE').length;
 
-    // If no album or month selected, show grid
-    if (!albumId && !selectedMonth) {
+    // If no album or month or person selected, show grid
+    if (!albumId && !selectedMonth && !selectedPerson) {
         return (
             <View style={styles.container}>
                 <StatusBar style="light" />
@@ -80,6 +82,14 @@ function SwipeInterface() {
 
     // Empty state
     if (queue.length === 0 && !isLoading) {
+        if (trashQueue.length > 0) {
+            return (
+                <View style={styles.container}>
+                    <ReviewBinModal isOpen={true} onClose={clearTrash} />
+                </View>
+            );
+        }
+
         return (
             <View style={styles.centerContainer}>
                 <StatusBar style="light" />
@@ -88,7 +98,7 @@ function SwipeInterface() {
                 </View>
                 <Text style={styles.doneTitle}>All caught up!</Text>
                 <Text style={styles.doneSubtitle}>No more photos to review.</Text>
-                <TouchableOpacity style={styles.backButton} onPress={() => { setAlbumId(null); setSelectedMonth(null); }}>
+                <TouchableOpacity style={styles.backButton} onPress={() => { setAlbumId(null); setSelectedMonth(null); setSelectedPerson(null); }}>
                     <Ionicons name="arrow-back" size={20} color="#fff" />
                     <Text style={styles.backButtonText}>Back to Library</Text>
                 </TouchableOpacity>
@@ -121,10 +131,24 @@ function SwipeInterface() {
 
             {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity style={styles.backChip} onPress={() => { setAlbumId(null); setSelectedMonth(null); }}>
+                <TouchableOpacity style={styles.backChip} onPress={() => { setAlbumId(null); setSelectedMonth(null); setSelectedPerson(null); }}>
                     <Ionicons name="arrow-back" size={18} color="#fff" />
                     <Text style={styles.backChipText}>Library</Text>
                 </TouchableOpacity>
+
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                    <TouchableOpacity
+                        style={[styles.backChip, { backgroundColor: 'rgba(239, 68, 68, 0.2)', borderWidth: 1, borderColor: 'rgba(239, 68, 68, 0.3)' }]}
+                        onPress={() => setIsReviewOpen(true)}
+                    >
+                        <Ionicons name="trash-outline" size={18} color="#fca5a5" />
+                        {trashQueue.length > 0 && (
+                            <View style={{ backgroundColor: '#ef4444', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, marginLeft: 4 }}>
+                                <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>{trashQueue.length}</Text>
+                            </View>
+                        )}
+                    </TouchableOpacity>
+                </View>
             </View>
 
             {/* Main Card Area */}
@@ -154,6 +178,8 @@ function SwipeInterface() {
                     deletedCount={deletedCount}
                 />
             </View>
+
+            <ReviewBinModal isOpen={isReviewOpen} onClose={() => setIsReviewOpen(false)} />
         </View>
     );
 }

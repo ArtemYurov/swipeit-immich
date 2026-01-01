@@ -1,9 +1,9 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import api from '@/lib/api';
-import { ImmichAsset, SwipeAction, ImmichAlbum } from '@/types/immich';
+import { ImmichAsset, SwipeAction, ImmichAlbum, Person } from '@/types/immich';
 import { useAuth } from './AuthContext';
 
-export type ViewMode = 'albums' | 'timeline';
+export type ViewMode = 'albums' | 'timeline' | 'people';
 
 export interface MonthGroup {
     key: string; // e.g., "2024-12"
@@ -31,6 +31,16 @@ interface SwipeContextType {
     selectedMonth: string | null;
     setSelectedMonth: (month: string | null) => void;
     fetchTimeline: () => Promise<void>;
+    // People
+    people: Person[];
+    selectedPerson: string | null;
+    setSelectedPerson: (id: string | null) => void;
+    fetchPeople: () => Promise<void>;
+    // Review Bin
+    trashQueue: ImmichAsset[];
+    restoreFromTrash: (assetId: string) => void;
+    emptyTrash: () => Promise<void>;
+    clearTrash: () => void;
 }
 
 const SwipeContext = createContext<SwipeContextType>({
@@ -52,6 +62,14 @@ const SwipeContext = createContext<SwipeContextType>({
     selectedMonth: null,
     setSelectedMonth: () => { },
     fetchTimeline: async () => { },
+    people: [],
+    selectedPerson: null,
+    setSelectedPerson: () => { },
+    fetchPeople: async () => { },
+    trashQueue: [],
+    restoreFromTrash: () => { },
+    emptyTrash: async () => { },
+    clearTrash: () => { },
 });
 
 export const useSwipe = () => useContext(SwipeContext);
@@ -70,6 +88,13 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
     const [viewMode, setViewMode] = useState<ViewMode>('albums');
     const [monthGroups, setMonthGroups] = useState<MonthGroup[]>([]);
     const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+
+    // People
+    const [people, setPeople] = useState<Person[]>([]);
+    const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
+
+    // Review Bin
+    const [trashQueue, setTrashQueue] = useState<ImmichAsset[]>([]);
 
     const fetchAlbums = useCallback(async () => {
         try {
@@ -174,23 +199,39 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
         }
     }, [isAuthenticated, fetchAlbums]);
 
-    // Reset everything when album or month changes
+    const fetchPeople = useCallback(async () => {
+        try {
+            const { data } = await api.get('/people?withHidden=false');
+            let peopleList: Person[] = [];
+            if (Array.isArray(data)) {
+                peopleList = data;
+            } else if (data.people) {
+                peopleList = data.people;
+            }
+            setPeople(peopleList);
+        } catch (e) {
+            console.error('Failed to fetch people', e);
+        }
+    }, []);
+
+    // Reset everything when album, month, or person changes
     useEffect(() => {
         setQueue([]);
         setHistory([]);
         setMasterAssets([]);
+        setTrashQueue([]);
         loadingRef.current = false;
-    }, [albumId, selectedMonth]);
+    }, [albumId, selectedMonth, selectedPerson]);
 
     // Derived State
     const currentAlbum = albums.find(a => a.id === albumId);
     const totalAssetsCount = currentAlbum ? currentAlbum.assetCount : masterAssets.length;
     const remainingCount = Math.max(0, totalAssetsCount - history.length);
 
-    // Load album or month assets
+    // Load album, month, or person assets
     useEffect(() => {
         const loadAssets = async () => {
-            if ((!albumId && !selectedMonth) || loadingRef.current || masterAssets.length > 0) return;
+            if ((!albumId && !selectedMonth && !selectedPerson) || loadingRef.current || masterAssets.length > 0) return;
 
             loadingRef.current = true;
             setIsLoading(true);
@@ -227,6 +268,18 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
                     });
                     assets = Array.isArray(data) ? data : (data.assets?.items || []);
                     console.log(`Loaded ${assets.length} assets for month ${selectedMonth}`);
+                } else if (selectedPerson) {
+                    // Fetch by person
+                    const { data } = await api.post('/search/metadata', {
+                        personIds: [selectedPerson],
+                        isTrashed: false,
+                        isArchived: false,
+                        type: 'IMAGE',
+                        withExif: true,
+                        isVisible: true,
+                    });
+                    assets = Array.isArray(data) ? data : (data.assets?.items || []);
+                    console.log(`Loaded ${assets.length} assets for person ${selectedPerson}`);
                 }
 
                 setMasterAssets(assets);
@@ -239,10 +292,10 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
             }
         };
 
-        if ((albumId || selectedMonth) && masterAssets.length === 0) {
+        if ((albumId || selectedMonth || selectedPerson) && masterAssets.length === 0) {
             loadAssets();
         }
-    }, [albumId, selectedMonth, masterAssets.length]);
+    }, [albumId, selectedMonth, selectedPerson, masterAssets.length]);
 
     // Queue refill
     useEffect(() => {
@@ -274,11 +327,8 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
         setHistory(prev => [action, ...prev]);
 
         if (direction === 'left') {
-            try {
-                await api.delete('/assets', { data: { ids: [asset.id] } });
-            } catch (e) {
-                console.error('Failed to delete asset', e);
-            }
+            // Soft Delete
+            setTrashQueue(prev => [asset, ...prev]);
         }
     }, [queue]);
 
@@ -289,15 +339,34 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
         setHistory(prev => prev.slice(1));
 
         if (lastAction.action === 'DELETE') {
-            try {
-                await api.post('/trash/restore/assets', { ids: [lastAction.asset.id] });
-            } catch (e) {
-                console.error('Failed to restore', e);
-            }
+            setTrashQueue(prev => prev.filter(a => a.id !== lastAction.asset.id));
         }
 
         setQueue(prev => [lastAction.asset, ...prev]);
     }, [history]);
+
+    const restoreFromTrash = (assetId: string) => {
+        setTrashQueue(prev => prev.filter(a => a.id !== assetId));
+        setHistory(prev => prev.filter(h => h.asset.id !== assetId)); // Remove from history
+    };
+
+    const emptyTrash = async () => {
+        if (trashQueue.length === 0) return;
+        const assetsToDelete = [...trashQueue];
+        setTrashQueue([]); // Optimistic
+
+        for (const asset of assetsToDelete) {
+            try {
+                await api.delete('/assets', { data: { ids: [asset.id] } });
+            } catch (e) {
+                console.error('Failed to delete asset', e);
+            }
+        }
+    };
+
+    const clearTrash = () => {
+        setTrashQueue([]);
+    };
 
     return (
         <SwipeContext.Provider value={{
@@ -319,6 +388,14 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
             selectedMonth,
             setSelectedMonth,
             fetchTimeline,
+            people,
+            selectedPerson,
+            setSelectedPerson,
+            fetchPeople,
+            trashQueue,
+            restoreFromTrash,
+            emptyTrash,
+            clearTrash,
         }}>
             {children}
         </SwipeContext.Provider>
