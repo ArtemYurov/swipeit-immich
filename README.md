@@ -51,61 +51,78 @@ Before you begin, ensure you have:
 
 ---
 
-## 🌐 Web Client Setup
+## 🚀 Quick Start (Web Client)
 
-The web client is a **Next.js** application that runs in your browser.
+The easiest way to run the web client is using Docker. No need to clone the repo or install Node.js!
 
-### Installation
+### Option A: Run directly (Recommended)
+
+Simply run the following command in your terminal:
 
 ```bash
-# 1. Navigate to the client directory
+docker run -p 3000:3000 \
+  -e NEXT_PUBLIC_IMMICH_SERVER_URL="http://YOUR_SERVER_IP:2283" \
+  blackdevil0070/swipeit:latest
+```
+
+*Replace `http://YOUR_SERVER_IP:2283` with your actual Immich server URL.*
+
+The app will be available at [http://localhost:3000](http://localhost:3000).
+
+### Option B: Using docker-compose
+
+Create a `docker-compose.yml` file:
+
+```yaml
+version: '3'
+services:
+  immich-swipe:
+    image: blackdevil0070/swipeit:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_IMMICH_SERVER_URL=http://YOUR_SERVER_IP:2283
+```
+
+Then run `docker-compose up -d`.
+
+---
+
+## 🛠️ Development & Build from Source
+
+If you want to contribute or build the app yourself, follow these steps.
+
+### Web Client Development
+
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/yourusername/Immich-Swipe.git
+    cd Immich-Swipe/client
+    ```
+
+2.  **Install dependencies:**
+    ```bash
+    npm install
+    ```
+
+3.  **Setup Environment:**
+    ```bash
+    cp .env.example .env.local
+    # Edit .env.local with your server details
+    ```
+
+4.  **Run Locally:**
+    ```bash
+    npm run dev
+    ```
+
+### Building the Docker Image Manually
+
+```bash
 cd client
-
-# 2. Install dependencies
-npm install
-
-# 3. Create environment file
-cp .env.example .env.local
+docker build -t swipeit-web .
+docker run -p 3000:3000 -e NEXT_PUBLIC_IMMICH_SERVER_URL="..." swipeit-web
 ```
-
-### Configuration
-
-Edit `.env.local` with your Immich server details:
-
-```env
-# Your Immich server URL (required)
-NEXT_PUBLIC_IMMICH_SERVER_URL=https://your-immich-server.com
-
-# Optional: Auto-login credentials
-NEXT_PUBLIC_IMMICH_EMAIL=your-email@example.com
-NEXT_PUBLIC_IMMICH_PASSWORD=your-password
-NEXT_PUBLIC_IMMICH_ACCESS_TOKEN=your-api-key
-```
-
-> **💡 Tip:** You can generate an API key in Immich under **Account Settings → API Keys**
-
-### Running the App
-
-```bash
-# Development mode (with hot reload)
-npm run dev
-
-# Build for production
-npm run build
-npm start
-```
-
-The app will be available at **http://localhost:3000**
-
-### Usage
-
-1. **Login** – Enter your Immich server URL and credentials
-2. **Select Album** – Choose an album from your library
-3. **Start Swiping!**
-   - ➡️ **Swipe Right** or press `→` = **Keep**
-   - ⬅️ **Swipe Left** or press `←` = **Delete** (moves to trash)
-   - 🔄 **Undo** button or press `Escape` = Undo last action
-4. **Done!** – Photos marked for deletion go to Immich's trash (recoverable for 30 days)
 
 ---
 
