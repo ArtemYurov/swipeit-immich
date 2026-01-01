@@ -23,13 +23,17 @@ export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
         <View style={StyleSheet.absoluteFill}>
             {/* Backdrop */}
             <Pressable style={StyleSheet.absoluteFill} onPress={onClose}>
-                <View
+                <Animated.View
+                    entering={FadeIn.duration(200)}
+                    exiting={FadeOut.duration(200)}
                     style={styles.backdrop}
                 />
             </Pressable>
 
             {/* Drawer */}
-            <View
+            <Animated.View
+                entering={SlideInLeft.springify().damping(25).stiffness(150)}
+                exiting={SlideOutLeft.duration(200)}
                 style={styles.drawer}
             >
                 <LinearGradient
@@ -73,7 +77,7 @@ export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
                         <Text style={styles.logoutText}>Log Out</Text>
                     </TouchableOpacity>
                 </LinearGradient>
-            </View>
+            </Animated.View>
         </View>
     );
 };

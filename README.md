@@ -16,6 +16,27 @@ A **fast photo review app** for [Immich](https://immich.app/) – the self-hoste
 - **⌨️ Keyboard Shortcuts** (Web) – Arrow keys for power users  
 - **🔐 Secure Authentication** – Email/Password or Access Token login  
 - **🌙 Dark Theme** – Easy on the eyes with a sleek dark interface  
+- **👥 People Sorting** – Organize and review photos by specific people  
+- **🗑️ Review Bin** – Double-check your deletions before they're gone  
+- **💾 Storage Dashboard** – Gamify your cleaning by tracking saved space  
+- **📱 Mobile Sidebar** – Clean navigation with quick access to stats  
+
+---
+
+## 📸 Screenshots
+
+### Web Client
+<p float="left">
+  <img src="assets/web_main.png" width="45%" />
+  <img src="assets/web_swipe.png" width="45%" />
+</p>
+
+### Mobile App
+<p float="left">
+  <img src="assets/mobile_main.jpeg" width="30%" />
+  <img src="assets/mobile_swipe.jpeg" width="30%" />
+  <img src="assets/mobile_sidebar.jpeg" width="30%" />
+</p>
 
 ---
 
