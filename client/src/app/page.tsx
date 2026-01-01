@@ -13,23 +13,26 @@ import { useRouter } from 'next/navigation';
 import { LayoutGroup, motion, AnimatePresence } from 'framer-motion';
 
 function SwipeInterface() {
-  const { queue, handleSwipe, handleUndo, history, isLoading, albumId, setAlbumId, remainingCount } = useSwipe();
+  const { queue, handleSwipe, handleUndo, history, isLoading, albumId, setAlbumId, remainingCount, selectedMonth, setSelectedMonth } = useSwipe();
   const { logout } = useAuth();
 
   // Keyboard Support
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!albumId) return; // Disable swipe keys if in album view
+      if (!albumId && !selectedMonth) return; // Disable swipe keys if in library view
       if (e.key === 'ArrowLeft') handleSwipe('left');
       if (e.key === 'ArrowRight') handleSwipe('right');
-      if (e.key === 'Escape') setAlbumId(null);
+      if (e.key === 'Escape') {
+        setAlbumId(null);
+        setSelectedMonth(null);
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleSwipe, albumId, setAlbumId]);
+  }, [handleSwipe, albumId, selectedMonth, setAlbumId, setSelectedMonth]);
 
-  // If no album selected, show grid
-  if (!albumId) {
+  // If no album or month selected, show grid
+  if (!albumId && !selectedMonth) {
     return (
       <div className="relative flex h-screen w-full flex-col bg-black overflow-hidden">
         {/* Header / Nav */}
@@ -62,9 +65,9 @@ function SwipeInterface() {
           <Check className="h-12 w-12 text-green-500" />
         </div>
         <h2 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-green-400 to-emerald-600">All caught up!</h2>
-        <p className="text-zinc-400">No more photos in this album to review.</p>
+        <p className="text-zinc-400">No more photos to review.</p>
         <div className="flex gap-4">
-          <Button variant="outline" onClick={() => setAlbumId(null)}>Choose Another Album</Button>
+          <Button variant="outline" onClick={() => { setAlbumId(null); setSelectedMonth(null); }}>Back to Library</Button>
           <Button variant="ghost" onClick={() => window.location.reload()}>Refresh</Button>
         </div>
       </div>
@@ -108,7 +111,7 @@ function SwipeInterface() {
 
       {/* HEADER: Navigation & Stats */}
       <div className="relative w-full z-50 flex items-center justify-between px-6 py-4 md:px-8 md:py-6">
-        <Button variant="ghost" className="rounded-full bg-black/20 backdrop-blur-md text-white/80 hover:bg-white/10 hover:text-white transition-all" onClick={() => setAlbumId(null)}>
+        <Button variant="ghost" className="rounded-full bg-black/20 backdrop-blur-md text-white/80 hover:bg-white/10 hover:text-white transition-all" onClick={() => { setAlbumId(null); setSelectedMonth(null); }}>
           <Undo2 className="mr-2 h-4 w-4" />
           Library
         </Button>

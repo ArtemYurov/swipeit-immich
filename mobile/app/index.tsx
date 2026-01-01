@@ -13,7 +13,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
 function SwipeInterface() {
-    const { queue, handleSwipe, handleUndo, history, isLoading, albumId, setAlbumId, remainingCount } = useSwipe();
+    const { queue, handleSwipe, handleUndo, history, isLoading, albumId, setAlbumId, remainingCount, selectedMonth, setSelectedMonth } = useSwipe();
     const { logout, serverUrl, accessToken } = useAuth();
 
     // Prefetch upcoming images
@@ -50,8 +50,8 @@ function SwipeInterface() {
     const keptCount = history.filter(h => h.action === 'KEEP').length;
     const deletedCount = history.filter(h => h.action === 'DELETE').length;
 
-    // If no album selected, show grid
-    if (!albumId) {
+    // If no album or month selected, show grid
+    if (!albumId && !selectedMonth) {
         return (
             <View style={styles.container}>
                 <StatusBar style="light" />
@@ -87,10 +87,10 @@ function SwipeInterface() {
                     <Ionicons name="checkmark-circle" size={64} color="#22c55e" />
                 </View>
                 <Text style={styles.doneTitle}>All caught up!</Text>
-                <Text style={styles.doneSubtitle}>No more photos in this album to review.</Text>
-                <TouchableOpacity style={styles.backButton} onPress={() => setAlbumId(null)}>
+                <Text style={styles.doneSubtitle}>No more photos to review.</Text>
+                <TouchableOpacity style={styles.backButton} onPress={() => { setAlbumId(null); setSelectedMonth(null); }}>
                     <Ionicons name="arrow-back" size={20} color="#fff" />
-                    <Text style={styles.backButtonText}>Choose Another Album</Text>
+                    <Text style={styles.backButtonText}>Back to Library</Text>
                 </TouchableOpacity>
             </View>
         );
@@ -121,7 +121,7 @@ function SwipeInterface() {
 
             {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity style={styles.backChip} onPress={() => setAlbumId(null)}>
+                <TouchableOpacity style={styles.backChip} onPress={() => { setAlbumId(null); setSelectedMonth(null); }}>
                     <Ionicons name="arrow-back" size={18} color="#fff" />
                     <Text style={styles.backChipText}>Library</Text>
                 </TouchableOpacity>

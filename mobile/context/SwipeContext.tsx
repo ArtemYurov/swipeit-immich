@@ -3,6 +3,15 @@ import api from '@/lib/api';
 import { ImmichAsset, SwipeAction, ImmichAlbum } from '@/types/immich';
 import { useAuth } from './AuthContext';
 
+export type ViewMode = 'albums' | 'timeline';
+
+export interface MonthGroup {
+    key: string; // e.g., "2024-12"
+    label: string; // e.g., "December 2024"
+    count: number;
+    coverAssetId: string | null;
+}
+
 interface SwipeContextType {
     queue: ImmichAsset[];
     history: SwipeAction[];
@@ -15,6 +24,13 @@ interface SwipeContextType {
     albums: ImmichAlbum[];
     fetchAlbums: () => Promise<void>;
     remainingCount: number;
+    // Timeline features
+    viewMode: ViewMode;
+    setViewMode: (mode: ViewMode) => void;
+    monthGroups: MonthGroup[];
+    selectedMonth: string | null;
+    setSelectedMonth: (month: string | null) => void;
+    fetchTimeline: () => Promise<void>;
 }
 
 const SwipeContext = createContext<SwipeContextType>({
@@ -29,6 +45,13 @@ const SwipeContext = createContext<SwipeContextType>({
     albums: [],
     fetchAlbums: async () => { },
     remainingCount: 0,
+    // Timeline defaults
+    viewMode: 'albums',
+    setViewMode: () => { },
+    monthGroups: [],
+    selectedMonth: null,
+    setSelectedMonth: () => { },
+    fetchTimeline: async () => { },
 });
 
 export const useSwipe = () => useContext(SwipeContext);
@@ -43,6 +66,11 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
     const [masterAssets, setMasterAssets] = useState<ImmichAsset[]>([]);
     const loadingRef = useRef(false);
 
+    // Timeline state
+    const [viewMode, setViewMode] = useState<ViewMode>('albums');
+    const [monthGroups, setMonthGroups] = useState<MonthGroup[]>([]);
+    const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+
     const fetchAlbums = useCallback(async () => {
         try {
             setIsLoading(true);
@@ -55,6 +83,90 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
         }
     }, []);
 
+    // Fetch timeline: get ALL photos and group by month (with pagination)
+    const fetchTimeline = useCallback(async () => {
+        if (monthGroups.length > 0) return; // Already fetched
+        setIsLoading(true);
+        try {
+            let allAssets: ImmichAsset[] = [];
+            let page = 1;
+            const pageSize = 1000;
+            let hasMore = true;
+
+            while (hasMore) {
+                const { data } = await api.post('/search/metadata', {
+                    isTrashed: false,
+                    isArchived: false,
+                    type: 'IMAGE',
+                    withExif: true,
+                    isVisible: true,
+                    order: 'desc',
+                    page: page,
+                    size: pageSize,
+                });
+
+                let assets: ImmichAsset[] = [];
+                if (Array.isArray(data)) {
+                    assets = data;
+                } else if (data.assets?.items) {
+                    assets = data.assets.items;
+                } else if (data.items) {
+                    assets = data.items;
+                }
+
+                allAssets = [...allAssets, ...assets];
+                console.log(`Fetched page ${page}: ${assets.length} assets (total: ${allAssets.length})`);
+
+                if (assets.length < pageSize) {
+                    hasMore = false;
+                } else {
+                    page++;
+                }
+
+                if (page > 100) {
+                    console.warn('Reached max page limit');
+                    hasMore = false;
+                }
+            }
+
+            console.log(`Total assets for timeline: ${allAssets.length}`);
+
+            // Group by month
+            const groups: Record<string, { assets: ImmichAsset[]; coverAssetId: string | null }> = {};
+
+            for (const asset of allAssets) {
+                const date = new Date(asset.localDateTime || asset.fileCreatedAt);
+                const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
+                if (!groups[key]) {
+                    groups[key] = { assets: [], coverAssetId: asset.id };
+                }
+                groups[key].assets.push(asset);
+            }
+
+            const monthGroupsArr: MonthGroup[] = Object.entries(groups)
+                .map(([key, value]) => {
+                    const [year, month] = key.split('-');
+                    const date = new Date(parseInt(year), parseInt(month) - 1);
+                    const label = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+                    return {
+                        key,
+                        label,
+                        count: value.assets.length,
+                        coverAssetId: value.coverAssetId,
+                    };
+                })
+                .sort((a, b) => b.key.localeCompare(a.key));
+
+            setMonthGroups(monthGroupsArr);
+        } catch (e) {
+            console.error('Failed to fetch timeline', e);
+        } finally {
+            setIsLoading(false);
+        }
+    }, [monthGroups.length]);
+
     // Load albums on auth
     useEffect(() => {
         if (isAuthenticated) {
@@ -62,39 +174,60 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
         }
     }, [isAuthenticated, fetchAlbums]);
 
-    // Reset everything when album changes
+    // Reset everything when album or month changes
     useEffect(() => {
         setQueue([]);
         setHistory([]);
         setMasterAssets([]);
         loadingRef.current = false;
-    }, [albumId]);
+    }, [albumId, selectedMonth]);
 
     // Derived State
     const currentAlbum = albums.find(a => a.id === albumId);
     const totalAssetsCount = currentAlbum ? currentAlbum.assetCount : masterAssets.length;
     const remainingCount = Math.max(0, totalAssetsCount - history.length);
 
-    // Load album assets
+    // Load album or month assets
     useEffect(() => {
-        const loadAlbumAssets = async () => {
-            if (!albumId || loadingRef.current || masterAssets.length > 0) return;
+        const loadAssets = async () => {
+            if ((!albumId && !selectedMonth) || loadingRef.current || masterAssets.length > 0) return;
 
             loadingRef.current = true;
             setIsLoading(true);
 
             try {
-                const { data } = await api.post('/search/metadata', {
-                    albumIds: [albumId],
-                    isTrashed: false,
-                    isArchived: false,
-                    type: 'IMAGE',
-                    withExif: true,
-                    isVisible: true,
-                });
+                let assets: ImmichAsset[] = [];
 
-                const assets: ImmichAsset[] = Array.isArray(data) ? data : (data.assets?.items || []);
-                console.log(`Loaded ${assets.length} assets for album ${albumId}`);
+                if (albumId) {
+                    // Fetch by album
+                    const { data } = await api.post('/search/metadata', {
+                        albumIds: [albumId],
+                        isTrashed: false,
+                        isArchived: false,
+                        type: 'IMAGE',
+                        withExif: true,
+                        isVisible: true,
+                    });
+                    assets = Array.isArray(data) ? data : (data.assets?.items || []);
+                    console.log(`Loaded ${assets.length} assets for album ${albumId}`);
+                } else if (selectedMonth) {
+                    // Fetch by month using date range
+                    const [year, month] = selectedMonth.split('-').map(Number);
+                    const startDate = new Date(year, month - 1, 1);
+                    const endDate = new Date(year, month, 0, 23, 59, 59);
+
+                    const { data } = await api.post('/search/metadata', {
+                        isTrashed: false,
+                        isArchived: false,
+                        type: 'IMAGE',
+                        withExif: true,
+                        isVisible: true,
+                        takenAfter: startDate.toISOString(),
+                        takenBefore: endDate.toISOString(),
+                    });
+                    assets = Array.isArray(data) ? data : (data.assets?.items || []);
+                    console.log(`Loaded ${assets.length} assets for month ${selectedMonth}`);
+                }
 
                 setMasterAssets(assets);
                 setQueue(assets.slice(0, 20));
@@ -106,10 +239,10 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
             }
         };
 
-        if (albumId && masterAssets.length === 0) {
-            loadAlbumAssets();
+        if ((albumId || selectedMonth) && masterAssets.length === 0) {
+            loadAssets();
         }
-    }, [albumId, masterAssets.length]);
+    }, [albumId, selectedMonth, masterAssets.length]);
 
     // Queue refill
     useEffect(() => {
@@ -179,6 +312,13 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
             albums,
             fetchAlbums,
             remainingCount,
+            // Timeline features
+            viewMode,
+            setViewMode,
+            monthGroups,
+            selectedMonth,
+            setSelectedMonth,
+            fetchTimeline,
         }}>
             {children}
         </SwipeContext.Provider>

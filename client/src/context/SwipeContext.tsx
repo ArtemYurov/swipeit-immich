@@ -12,6 +12,15 @@ export interface ImmichAlbum {
     albumThumbnailAssetId: string | null;
 }
 
+export type ViewMode = 'albums' | 'timeline';
+
+export interface MonthGroup {
+    key: string; // e.g., "2024-12"
+    label: string; // e.g., "December 2024"
+    count: number;
+    coverAssetId: string | null;
+}
+
 interface SwipeContextType {
     queue: ImmichAsset[];
     history: SwipeAction[];
@@ -25,6 +34,14 @@ interface SwipeContextType {
     albums: ImmichAlbum[];
     fetchAlbums: () => Promise<void>;
     remainingCount: number;
+    // New: View mode
+    viewMode: ViewMode;
+    setViewMode: (mode: ViewMode) => void;
+    // New: Timeline
+    monthGroups: MonthGroup[];
+    selectedMonth: string | null;
+    setSelectedMonth: (month: string | null) => void;
+    fetchTimeline: () => Promise<void>;
 }
 
 const SwipeContext = createContext<SwipeContextType>({
@@ -40,6 +57,13 @@ const SwipeContext = createContext<SwipeContextType>({
     albums: [],
     fetchAlbums: async () => { },
     remainingCount: 0,
+    // New defaults
+    viewMode: 'albums',
+    setViewMode: () => { },
+    monthGroups: [],
+    selectedMonth: null,
+    setSelectedMonth: () => { },
+    fetchTimeline: async () => { },
 });
 
 export const useSwipe = () => useContext(SwipeContext);
@@ -55,6 +79,11 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
     const [masterAssets, setMasterAssets] = useState<ImmichAsset[]>([]);
     const loadingRef = useRef(false);
 
+    // New: View mode and timeline
+    const [viewMode, setViewMode] = useState<ViewMode>('albums');
+    const [monthGroups, setMonthGroups] = useState<MonthGroup[]>([]);
+    const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+
     const fetchAlbums = useCallback(async () => {
         try {
             const { data } = await api.get('/albums');
@@ -63,6 +92,94 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
             console.error("Failed to fetch albums", e);
         }
     }, []);
+    // Fetch timeline: get ALL photos and group by month (with pagination)
+    const fetchTimeline = useCallback(async () => {
+        if (monthGroups.length > 0) return; // Already fetched
+        setIsLoading(true);
+        try {
+            let allAssets: ImmichAsset[] = [];
+            let page = 1;
+            const pageSize = 1000; // Fetch in large batches
+            let hasMore = true;
+
+            // Paginate through all assets
+            while (hasMore) {
+                const { data } = await api.post('/search/metadata', {
+                    isTrashed: false,
+                    isArchived: false,
+                    type: 'IMAGE',
+                    withExif: true,
+                    isVisible: true,
+                    order: 'desc',
+                    page: page,
+                    size: pageSize,
+                });
+
+                // Handle different response formats
+                let assets: ImmichAsset[] = [];
+                if (Array.isArray(data)) {
+                    assets = data;
+                } else if (data.assets?.items) {
+                    assets = data.assets.items;
+                } else if (data.items) {
+                    assets = data.items;
+                }
+
+                allAssets = [...allAssets, ...assets];
+                console.log(`Fetched page ${page}: ${assets.length} assets (total: ${allAssets.length})`);
+
+                // Check if there are more pages
+                if (assets.length < pageSize) {
+                    hasMore = false;
+                } else {
+                    page++;
+                }
+
+                // Safety limit to prevent infinite loops
+                if (page > 100) {
+                    console.warn('Reached max page limit');
+                    hasMore = false;
+                }
+            }
+
+            console.log(`Total assets fetched for timeline: ${allAssets.length}`);
+
+            // Group by month
+            const groups: Record<string, { assets: ImmichAsset[]; coverAssetId: string | null }> = {};
+
+            for (const asset of allAssets) {
+                const date = new Date(asset.localDateTime || asset.fileCreatedAt);
+                const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
+                if (!groups[key]) {
+                    groups[key] = { assets: [], coverAssetId: asset.id };
+                }
+                groups[key].assets.push(asset);
+            }
+
+            // Convert to MonthGroup array
+            const monthGroupsArr: MonthGroup[] = Object.entries(groups)
+                .map(([key, value]) => {
+                    const [year, month] = key.split('-');
+                    const date = new Date(parseInt(year), parseInt(month) - 1);
+                    const label = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+                    return {
+                        key,
+                        label,
+                        count: value.assets.length,
+                        coverAssetId: value.coverAssetId,
+                    };
+                })
+                .sort((a, b) => b.key.localeCompare(a.key)); // Newest first
+
+            setMonthGroups(monthGroupsArr);
+        } catch (e) {
+            console.error("Failed to fetch timeline", e);
+        } finally {
+            setIsLoading(false);
+        }
+    }, [monthGroups.length]);
 
     // Load albums on auth
     useEffect(() => {
@@ -71,13 +188,13 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
         }
     }, [isAuthenticated, fetchAlbums]);
 
-    // Reset everything when album changes
+    // Reset everything when album or month changes
     useEffect(() => {
         setQueue([]);
         setHistory([]);
         setMasterAssets([]);
         loadingRef.current = false; // allow new fetch
-    }, [albumId]);
+    }, [albumId, selectedMonth]);
 
     // Derived State
     // Use the Album's metadata count if available for accuracy (search might be capped at 250?)
@@ -93,32 +210,52 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
     // Ensure we don't go negative
     const remainingCount = Math.max(0, totalAssetsCount - history.length);
 
-    // Initial Load of Album Assets
+    // Initial Load of Album or Month Assets
     useEffect(() => {
-        const loadAlbumAssets = async () => {
-            if (!albumId || loadingRef.current || masterAssets.length > 0) return;
+        const loadAssets = async () => {
+            // Must have either albumId or selectedMonth
+            if ((!albumId && !selectedMonth) || loadingRef.current || masterAssets.length > 0) return;
 
             loadingRef.current = true;
             setIsLoading(true);
 
             try {
-                // Fetch ALL assets for the album to get accurate count
-                const { data } = await api.post('/search/metadata', {
-                    albumIds: [albumId],
-                    isTrashed: false,
-                    isArchived: false,
-                    type: 'IMAGE',
-                    withExif: true, // Need dimensions
-                    isVisible: true,
-                });
+                let assets: ImmichAsset[] = [];
 
-                const assets: ImmichAsset[] = Array.isArray(data) ? data : (data.assets?.items || []);
-                console.log(`Loaded ${assets.length} assets for album ${albumId}`);
+                if (albumId) {
+                    // Fetch assets by album
+                    const { data } = await api.post('/search/metadata', {
+                        albumIds: [albumId],
+                        isTrashed: false,
+                        isArchived: false,
+                        type: 'IMAGE',
+                        withExif: true,
+                        isVisible: true,
+                    });
+                    assets = Array.isArray(data) ? data : (data.assets?.items || []);
+                    console.log(`Loaded ${assets.length} assets for album ${albumId}`);
+                } else if (selectedMonth) {
+                    // Fetch assets by month using date range
+                    const [year, month] = selectedMonth.split('-').map(Number);
+                    const startDate = new Date(year, month - 1, 1);
+                    const endDate = new Date(year, month, 0, 23, 59, 59); // Last day of month
+
+                    const { data } = await api.post('/search/metadata', {
+                        isTrashed: false,
+                        isArchived: false,
+                        type: 'IMAGE',
+                        withExif: true,
+                        isVisible: true,
+                        takenAfter: startDate.toISOString(),
+                        takenBefore: endDate.toISOString(),
+                    });
+                    assets = Array.isArray(data) ? data : (data.assets?.items || []);
+                    console.log(`Loaded ${assets.length} assets for month ${selectedMonth}`);
+                }
 
                 setMasterAssets(assets);
 
                 // Initialize Queue with first 20 items
-                // Filter out any that might already be in history (if we persisted history, which we don't currently)
                 setQueue(assets.slice(0, 20));
 
             } catch (error) {
@@ -133,10 +270,10 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
             }
         };
 
-        if (albumId && masterAssets.length === 0) {
-            loadAlbumAssets();
+        if ((albumId || selectedMonth) && masterAssets.length === 0) {
+            loadAssets();
         }
-    }, [albumId, masterAssets.length]);
+    }, [albumId, selectedMonth, masterAssets.length]);
 
 
     // Queue Refill Management
@@ -224,7 +361,14 @@ export const SwipeProvider = ({ children }: { children: React.ReactNode }) => {
             setAlbumId,
             albums,
             fetchAlbums,
-            remainingCount // Exported new property
+            remainingCount,
+            // New: view mode and timeline
+            viewMode,
+            setViewMode,
+            monthGroups,
+            selectedMonth,
+            setSelectedMonth,
+            fetchTimeline,
         }}>
             {children}
         </SwipeContext.Provider>

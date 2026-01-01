@@ -2,6 +2,7 @@ export interface ImmichAsset {
     id: string;
     type: 'IMAGE' | 'VIDEO';
     fileCreatedAt: string;
+    localDateTime?: string;  // For timeline grouping
     originalFileName: string;
     isTrashed: boolean;
     isArchived: boolean;
