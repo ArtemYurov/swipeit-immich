@@ -1,0 +1,184 @@
+name: Android prerelease
+
+# Triggers:
+#  - push to master with changes in mobile/** or the workflow file itself
+#  - workflow_dispatch for manual runs during debugging
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/android-prerelease.yml'
+  workflow_dispatch: {}
+
+# Cancels previous runs when several pushes land on the same ref quickly.
+concurrency:
+  group: android-prerelease-${{ github.ref }}
+  cancel-in-progress: true
+
+# contents: write is required for softprops/action-gh-release and gh release edit/delete.
+permissions:
+  contents: write
+
+env:
+  # Canonical app slug (mobile/app.json:expo.slug).
+  # Used as a prefix for the artifact name and prerelease tag.
+  APP_SLUG: immich-swipe
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Hard cap so a hung Gradle / setup-android does not burn the minute quota.
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      # fetch-depth: 0 is required — git rev-list --count HEAD needs full history.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Format: ${slug}-${branch}-${count}-${sha7}
+      # Example: immich-swipe-master-127-a360017
+      # Used as: prerelease tag, release name, and APK filename.
+      - name: Compute version
+        id: version
+        working-directory: .
+        run: |
+          BRANCH="${GITHUB_REF_NAME//\//-}"
+          COUNT=$(git rev-list --count HEAD)
+          SHORT=$(git rev-parse --short=7 HEAD)
+          VERSION="${{ env.APP_SLUG }}-${BRANCH}-${COUNT}-${SHORT}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "📦 Computed version: $VERSION"
+          echo "  branch: $BRANCH"
+          echo "  count:  $COUNT"
+          echo "  sha7:   $SHORT"
+
+      # Node 20 matches client/Dockerfile (node:20-alpine).
+      # npm cache is keyed to mobile/package-lock.json.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      # JDK 17 is the current standard for AGP 8.x / RN 0.81.
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # Installs Android SDK Command-line Tools.
+      # gradlew pulls the specific platform/build-tools via sdkmanager later.
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # working-directory defaults to mobile/, so npm ci reads mobile/package.json.
+      - name: Install mobile deps
+        run: |
+          echo "📦 Installing mobile dependencies (npm ci)"
+          npm ci
+          echo "✅ Dependencies installed"
+
+      # Generates mobile/android/ on the fly (managed -> bare workflow).
+      # --no-install: dependencies are already installed by the previous step.
+      # --clean: ensure a fresh android/ folder on every run.
+      - name: Expo prebuild
+        run: |
+          echo "🏗  Running expo prebuild --platform android --no-install --clean"
+          npx expo prebuild --platform android --no-install --clean
+          echo "✅ Prebuild complete. android/ generated."
+          ls -la android/ | head -20
+
+      # assembleDebug produces a debug-signed APK (auto-generated debug.keystore),
+      # which installs on Android devices without extra signing setup.
+      # --no-daemon: pointless on a one-shot CI runner.
+      # --stacktrace: surface root cause immediately on failure.
+      - name: Gradle assembleDebug
+        working-directory: mobile/android
+        run: |
+          echo "🔨 Starting Gradle build (assembleDebug)"
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+          echo "✅ Gradle build complete"
+          echo "📂 APK outputs:"
+          ls -la app/build/outputs/apk/debug/
+
+      # Rename app-debug.apk -> ${VERSION}.apk so the artifact attached to the
+      # GitHub Release matches the requested naming scheme.
+      # apk_path is repo-relative (prefixed with mobile/) for softprops:files.
+      - name: Rename APK
+        id: apk
+        run: |
+          SRC="android/app/build/outputs/apk/debug/app-debug.apk"
+          DST_NAME="${{ steps.version.outputs.version }}.apk"
+          DST="android/app/build/outputs/apk/debug/${DST_NAME}"
+          echo "📝 Renaming APK"
+          echo "  source: $SRC"
+          echo "  target: $DST"
+          mv "$SRC" "$DST"
+          echo "apk_path=mobile/${DST}" >> "$GITHUB_OUTPUT"
+          echo "apk_name=${DST_NAME}" >> "$GITHUB_OUTPUT"
+          ls -la "$DST"
+
+      # Creates a draft prerelease so the next step can inspect / amend it
+      # before flipping to published. tag_name is also created as a git tag.
+      - name: Create draft prerelease
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: "Prerelease ${{ steps.version.outputs.version }}"
+          draft: true
+          prerelease: true
+          files: ${{ steps.apk.outputs.apk_path }}
+
+      # gh CLI is preinstalled on ubuntu-latest. GH_TOKEN is required for auth.
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          echo "🚀 Publishing prerelease: $VERSION"
+          gh release edit "$VERSION" --draft=false
+          URL=$(gh release view "$VERSION" --json url --jq '.url')
+          echo "✅ Published: $URL"
+
+      # Keep only the most recent prerelease; delete older ones (and their tags).
+      # Filter by APP_SLUG prefix so we never touch prereleases owned by other
+      # workflows / manual releases in this repo.
+      # continue-on-error: a flaky cleanup must not fail the whole workflow.
+      - name: Cleanup old prereleases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+        run: |
+          PREFIX="${{ env.APP_SLUG }}-"
+          echo "🧹 Cleaning up old prereleases (prefix: ${PREFIX})..."
+          PRERELEASES=$(gh release list \
+            --limit 100 \
+            --json tagName,isPrerelease,createdAt \
+            --jq "sort_by(.createdAt) | reverse | .[] | select(.isPrerelease and (.tagName | startswith(\"${PREFIX}\"))) | .tagName")
+
+          if [ -z "$PRERELEASES" ]; then
+            echo "  no matching prereleases found"
+            exit 0
+          fi
+
+          COUNT=$(echo "$PRERELEASES" | wc -l | tr -d ' ')
+          echo "  found $COUNT prerelease(s) with prefix ${PREFIX}"
+
+          # tail -n +2 — skip the newest (the one we just published) and delete the rest.
+          echo "$PRERELEASES" | tail -n +2 | while IFS= read -r TAG; do
+            [ -z "$TAG" ] && continue
+            echo "  🗑  deleting $TAG"
+            gh release delete "$TAG" --yes \
+              || echo "    (release delete failed for $TAG)"
+            gh api -X DELETE "repos/${{ github.repository }}/git/refs/tags/$TAG" \
+              || echo "    (tag ref delete failed for $TAG)"
+          done
+          echo "✅ Cleanup complete"
