@@ -1,19 +1,21 @@
-name: Android prerelease
+name: Android build
 
 # Triggers:
-#  - push to master with changes in mobile/** or the workflow file itself
+#  - push to any branch with changes in mobile/** or the workflow file itself
 #  - workflow_dispatch for manual runs during debugging
+# Per-branch behaviour is controlled by `if: github.ref == 'refs/heads/master'`
+# guards on the release/cleanup steps further down.
 on:
   push:
-    branches: [master]
+    branches: ['**']
     paths:
       - 'mobile/**'
-      - '.github/workflows/android-prerelease.yml'
+      - '.github/workflows/android-build.yml'
   workflow_dispatch: {}
 
 # Cancels previous runs when several pushes land on the same ref quickly.
 concurrency:
-  group: android-prerelease-${{ github.ref }}
+  group: android-build-${{ github.ref }}
   cancel-in-progress: true
 
 # contents: write is required for softprops/action-gh-release and gh release edit/delete.
@@ -126,9 +128,22 @@ jobs:
           echo "apk_name=${DST_NAME}" >> "$GITHUB_OUTPUT"
           ls -la "$DST"
 
+      # Upload APK as a workflow artifact for every branch (master + features).
+      # Lives 14 days in the run's Artifacts panel; downloadable by anyone with
+      # repo read access. Acts as a fallback if the release step fails on master.
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.version.outputs.version }}
+          path: ${{ steps.apk.outputs.apk_path }}
+          retention-days: 14
+          if-no-files-found: error
+
       # Creates a draft prerelease so the next step can inspect / amend it
       # before flipping to published. tag_name is also created as a git tag.
+      # Master only — feature branches stop at the artifact upload above.
       - name: Create draft prerelease
+        if: github.ref == 'refs/heads/master'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.version.outputs.version }}
@@ -139,6 +154,7 @@ jobs:
 
       # gh CLI is preinstalled on ubuntu-latest. GH_TOKEN is required for auth.
       - name: Publish prerelease
+        if: github.ref == 'refs/heads/master'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -153,6 +169,7 @@ jobs:
       # workflows / manual releases in this repo.
       # continue-on-error: a flaky cleanup must not fail the whole workflow.
       - name: Cleanup old prereleases
+        if: github.ref == 'refs/heads/master'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
