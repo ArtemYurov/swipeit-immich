@@ -144,16 +144,19 @@ jobs:
           ls -la android/ | head -20
 
       # JS must be bundled into the APK explicitly because assembleDebug
-      # otherwise expects Metro at localhost:8081. Without this step the
-      # installed APK shows an infinite splash on a phone disconnected
-      # from the dev machine.
+      # otherwise expects Metro at localhost:8081.
+      # --dev=false is critical: without it, expo export:embed produces a
+      # bundle with __DEV__=true that immediately crashes in embedded
+      # runtime with "Cannot create devtools websocket connections in
+      # embedded environments" — JS never finishes loading, splash hangs.
       - name: Bundle JS into APK
         run: |
-          echo "📦 Bundling JS into release-mode bundle"
+          echo "📦 Bundling JS into production-mode bundle (__DEV__=false)"
           mkdir -p android/app/src/main/assets
           mkdir -p android/app/src/main/res
           npx expo export:embed \
             --platform android \
+            --dev false \
             --bundle-output android/app/src/main/assets/index.android.bundle \
             --assets-dest android/app/src/main/res/
           echo "✅ JS bundle written to android/app/src/main/assets/index.android.bundle"
