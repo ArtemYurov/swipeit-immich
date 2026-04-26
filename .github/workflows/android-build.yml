@@ -59,6 +59,52 @@ jobs:
           echo "  count:  $COUNT"
           echo "  sha7:   $SHORT"
 
+      # Stable debug keystore comes from a repo secret so APK signature stays
+      # constant across runs. Without this, every build gets a fresh
+      # ~/.android/debug.keystore on the runner and on-device updates fail
+      # with INSTALL_FAILED_UPDATE_INCOMPATIBLE.
+      # Single-quoted heredoc prevents shell expansion so the printed
+      # commands are valid for copy-paste.
+      - name: Verify Android signing secret
+        working-directory: .
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            cat <<'EOF'
+
+          ❌ Missing required secret: ANDROID_DEBUG_KEYSTORE_BASE64
+
+          One-time setup (locally):
+
+            keytool -genkey -v -keystore stable-debug.keystore \
+              -storepass android -keypass android \
+              -alias androiddebugkey -keyalg RSA -keysize 2048 \
+              -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+            gh secret set ANDROID_DEBUG_KEYSTORE_BASE64 \
+              --body "$(base64 -i stable-debug.keystore)"
+            rm stable-debug.keystore
+
+          Then re-run this workflow.
+
+          EOF
+            exit 1
+          fi
+          echo "✅ Signing secret present"
+
+      # Gradle picks up ~/.android/debug.keystore by convention — no
+      # build.gradle changes are needed (which is critical because
+      # `expo prebuild --clean` regenerates android/ on every run).
+      - name: Restore stable debug keystore
+        working-directory: .
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          mkdir -p ~/.android
+          echo "$KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+          echo "🔑 Keystore restored at ~/.android/debug.keystore"
+          ls -la ~/.android/debug.keystore
+
       # Node 20 matches client/Dockerfile (node:20-alpine).
       # npm cache is keyed to mobile/package-lock.json.
       - name: Setup Node
@@ -97,8 +143,26 @@ jobs:
           echo "✅ Prebuild complete. android/ generated."
           ls -la android/ | head -20
 
-      # assembleDebug produces a debug-signed APK (auto-generated debug.keystore),
-      # which installs on Android devices without extra signing setup.
+      # JS must be bundled into the APK explicitly because assembleDebug
+      # otherwise expects Metro at localhost:8081. Without this step the
+      # installed APK shows an infinite splash on a phone disconnected
+      # from the dev machine.
+      - name: Bundle JS into APK
+        run: |
+          echo "📦 Bundling JS into release-mode bundle"
+          mkdir -p android/app/src/main/assets
+          mkdir -p android/app/src/main/res
+          npx expo export:embed \
+            --platform android \
+            --bundle-output android/app/src/main/assets/index.android.bundle \
+            --assets-dest android/app/src/main/res/
+          echo "✅ JS bundle written to android/app/src/main/assets/index.android.bundle"
+          ls -la android/app/src/main/assets/
+
+      # assembleDebug produces a debug-signed APK using the stable keystore
+      # restored above (~/.android/debug.keystore). The bundled JS from the
+      # previous step is included automatically because it lives under
+      # android/app/src/main/assets/.
       # --no-daemon: pointless on a one-shot CI runner.
       # --stacktrace: surface root cause immediately on failure.
       - name: Gradle assembleDebug
