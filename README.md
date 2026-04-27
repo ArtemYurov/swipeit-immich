@@ -181,13 +181,6 @@ eas build --platform android --profile preview
 eas build --platform ios
 ```
 
-### CI builds (GitHub Actions)
-
-Builds run automatically on push to any branch via
-`.github/workflows/android-build.yml`. First-time setup requires generating a
-stable signing keystore — see the **Verify Android signing secret** step in the
-workflow file for the one-time `keytool` + `gh secret set` instructions.
-
 ### Usage
 
 1. **Launch the app** – You'll see the login screen
