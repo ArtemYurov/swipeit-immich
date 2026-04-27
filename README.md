@@ -1,4 +1,4 @@
-# 📸 Immich Swipe
+# 📸 Immich SwipeIt App
 
 A **fast photo review app** for [Immich](https://immich.app/) – the self-hosted photo and video backup solution. Swipe right to **keep**, swipe left to **delete**. Available as both a **Web Client** and a **Mobile App**.
 
